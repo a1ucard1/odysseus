@@ -1489,10 +1489,10 @@ def preview_response_token_budget(model, max_tokens):
         except (TypeError, ValueError):
             configured = 0
         if configured > 0:
-            return min(configured, 4096)
+            return min(configured, 32768)
         # The chat route passes 0 when no per-session override is set. Use a
         # useful default for Qwen rather than the generic 768-token budget.
-        return 4096
+        return 32768
     return 768
 
 
