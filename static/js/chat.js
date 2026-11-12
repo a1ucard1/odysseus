@@ -3146,13 +3146,20 @@ import { invalidateSettings } from './appConfig.js';
         let errText = `Error ${res.status}`;
         try {
           const errBody = await res.text();
-          // Parse nested JSON error if present
-          const m = errBody.match(/"message"\s*:\s*"([^"]+)"/);
-          if (m) errText = m[1].replace(/\\"/g, '"');
-          else if (errBody.length < 200) errText = errBody;
+          // FastAPI returns errors in detail; preserve approval and run errors.
+          try {
+            const parsed = JSON.parse(errBody);
+            const message = parsed?.detail?.message || parsed?.detail || parsed?.message;
+            if (typeof message === 'string') errText = message;
+            else if (errBody.length < 200) errText = errBody;
+          } catch {
+            if (errBody.length < 200) errText = errBody;
+          }
         } catch {}
         // Auto-switch to chat mode for tool-related errors
-        if (errText.includes('tool') || errText.includes('auto')) {
+        const unsupportedTools = res.status !== 409 &&
+          /(?:model|provider).{0,80}(?:does not|doesn't|cannot|can't|unsupported).{0,60}(?:tool|function)|(?:tool|function).{0,50}(?:not supported|unsupported)/i.test(errText);
+        if (unsupportedTools) {
           errText = 'This model doesn\'t support agent tools — switched to Chat mode. Try again.';
           const _ab = document.getElementById('mode-agent-btn');
           const _cb = document.getElementById('mode-chat-btn');
