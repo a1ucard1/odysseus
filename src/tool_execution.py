@@ -19,7 +19,7 @@ import stat
 import secrets
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from typing import Any, Awaitable, Callable, Dict, Iterator, Optional, Tuple
 
@@ -1947,7 +1947,16 @@ async def execute_tool_block(
             browser_operation = replace(browser_operation, exact_approval=exact_approval)
         normalized = resource_operation or owned_operation
         sealed_document = owned_operation or (exact_approval.pending if approval_claimed else None)
-        with (bind_request_authority(authority), bind_resource_operation(resource_operation),
+        # Rebinding the unchanged top-level authority intersects it with
+        # itself and incorrectly marks an exact approval as inherited. Keep
+        # the already-bound authority only when it is identical; all narrowed
+        # or different authority still goes through the normal intersection.
+        authority_scope = (
+            nullcontext(authority)
+            if approval_claimed and active_request_authority() == authority
+            else bind_request_authority(authority)
+        )
+        with (authority_scope, bind_resource_operation(resource_operation),
               bind_backend_operation(backend_operation), bind_owned_operation(owned_operation),
               bind_process_operation(process_operation), bind_browser_operation(browser_operation)):
             output = await _execute_tool_block_impl(

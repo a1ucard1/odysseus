@@ -69,6 +69,24 @@ async def test_approved_ungranted_bash_runs_once(tmp_path):
     assert replay.get("blocked") is True, replay
 
 
+async def test_approved_bash_keeps_exact_claim_in_bound_request(tmp_path, monkeypatch):
+    from src import tool_execution as execution
+    from src.agent_runtime.authority import bind_request_authority
+    from src.agent_runtime.process_resources import require_launch
+
+    authority = _authority(tmp_path, 'get_workspace')
+    _, exact = _approve(authority, 'bash', 'printf approved-run')
+
+    async def producer(block, **kwargs):
+        require_launch('bash', cwd=str(tmp_path), content=block.content)
+        return 'bash', {'exit_code': 0}
+
+    monkeypatch.setattr(execution, '_execute_tool_block_impl', producer)
+    with bind_request_authority(authority):
+        _, result = await _dispatch(authority, 'bash', 'printf approved-run', exact)
+    assert result['exit_code'] == 0, result
+
+
 async def test_inherited_authority_still_cannot_widen_to_ungranted_bash(tmp_path):
     # A child (inherited) authority may only narrow its parent, so an approval
     # it proposes for an ungranted launch must stay unsealed and unrunnable.
