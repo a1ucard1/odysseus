@@ -2148,9 +2148,17 @@ def document_suggestions_event(result, *, failed=False):
     }
 
 
-def preview_http_timeout(*, native_workspace_enabled=False):
-    """Allow long multimodal generations without weakening interactive turns."""
-    read_timeout = 600 if native_workspace_enabled else 90
+def preview_http_timeout(*, native_workspace_enabled=False, endpoint_url=''):
+    """Allow slow local and native streams more time between response bytes."""
+    from urllib.parse import urlparse
+    import ipaddress
+
+    host = (urlparse(endpoint_url).hostname or '').lower()
+    try:
+        local_endpoint = host == 'localhost' or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        local_endpoint = False
+    read_timeout = 600 if native_workspace_enabled or local_endpoint else 90
     return httpx.Timeout(read_timeout, connect=10)
 
 
@@ -6150,6 +6158,7 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
         async with httpx.AsyncClient(
             timeout=preview_http_timeout(
                 native_workspace_enabled=native_workspace_enabled,
+                endpoint_url=endpoint_url,
             ),
             limits=preview_http_limits(),
         ) as client:

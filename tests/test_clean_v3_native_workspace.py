@@ -122,6 +122,10 @@ def test_native_multimodal_stream_gets_long_read_timeout_only_in_native_mode():
     assert preview_http_timeout().read == 90
     assert preview_http_timeout(native_workspace_enabled=True).read == 600
     assert preview_http_timeout(native_workspace_enabled=True).connect == 10
+    assert preview_http_timeout(endpoint_url='http://127.0.0.1:11434/v1').read == 600
+    assert preview_http_timeout(endpoint_url='http://localhost:11434').read == 600
+    assert preview_http_timeout(endpoint_url='http://[::1]:11434').read == 600
+    assert preview_http_timeout(endpoint_url='https://example.com').read == 90
 
 
 def test_malformed_tool_arguments_are_safe_in_provider_history():
