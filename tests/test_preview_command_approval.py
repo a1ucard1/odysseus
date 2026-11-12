@@ -18,9 +18,11 @@ def test_only_ungranted_current_user_commands_request_approval(tool, content, tm
 
 
 @pytest.mark.asyncio
-async def test_compact_preview_asks_before_ungranted_bash(tmp_path, monkeypatch):
+@pytest.mark.parametrize('nested', [False, True])
+async def test_compact_preview_asks_before_ungranted_bash(tmp_path, monkeypatch, nested):
     import src.clean_agent_preview as preview
-    from src.agent_runtime.authority import create_request_authority
+    from src.agent_runtime.authority import create_request_authority, bind_request_authority
+    from contextlib import nullcontext
     from src.tool_approvals import tool_approval_store
     from src.tool_policy import ToolPolicy
     from src.tool_schemas import FUNCTION_TOOL_SCHEMAS
@@ -44,7 +46,8 @@ async def test_compact_preview_asks_before_ungranted_bash(tmp_path, monkeypatch)
     schemas = [s for s in FUNCTION_TOOL_SCHEMAS if s['function']['name'] == 'bash']
     contract = resolve_full_inventory_contract(schemas=schemas, policy=policy)
     authority = create_request_authority('Improve the PDF', owner='alice', session_id='s', workspace=str(tmp_path))
-    chunks = [c async for c in preview.stream_preview(endpoint_url='http://test', model='llama3.1:8b', headers={}, messages=[{'role': 'user', 'content': 'Improve the PDF'}], turn_contract=contract, session_id='s', owner='alice', workspace=str(tmp_path), disabled_tools=set(), tool_policy=policy, request_authority=authority)]
+    with bind_request_authority(authority) if nested else nullcontext():
+        chunks = [c async for c in preview.stream_preview(endpoint_url='http://test', model='llama3.1:8b', headers={}, messages=[{'role': 'user', 'content': 'Improve the PDF'}], turn_contract=contract, session_id='s', owner='alice', workspace=str(tmp_path), disabled_tools=set(), tool_policy=policy, request_authority=authority, approval_request_authority=authority if nested else None)]
     events = [json.loads(c[6:]) for c in chunks if c.startswith('data: {')]
     ask = next(e['data'] for e in events if e.get('type') == 'ask_user')
     pending = tool_approval_store.peek(ask['approval_id'])

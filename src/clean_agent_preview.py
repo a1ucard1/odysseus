@@ -5734,7 +5734,8 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                          max_tool_calls=0,
                          external_tool_schemas=None, temperature=0.0,
                          context_resolution=None,
-                         request_authority=MISSING_AUTHORITY, **ignored):
+                         request_authority=MISSING_AUTHORITY,
+                         approval_request_authority=None, **ignored):
     if spec_driver_active(endpoint_url, model, owner, headers):
         yield event({'delta': 'Spec driver mode is unavailable because its authority and completion checks are not supported. No action was performed.'})
         yield 'data: [DONE]\n\n'
@@ -8005,6 +8006,20 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                             decision = security.decision_for(block.tool_type, block.content)
                             authority = active_request_authority()
                             operation = ExactOperation.normalize(block.tool_type, block.content)
+                            # The normal agent-to-preview wrapper intersects the
+                            # authority with itself and marks it inherited. Use
+                            # the originating top-level authority only when the
+                            # trusted caller supplied the same bound request.
+                            origin = approval_request_authority
+                            if (authority is not None and origin is not None
+                                    and authority.inherited and not origin.inherited
+                                    and authority.request_id == origin.request_id
+                                    and authority.bound_to(owner=owner, session_id=session_id, workspace=workspace)
+                                    and origin.bound_to(owner=owner, session_id=session_id, workspace=workspace)):
+                                # Preserve the intersection's denials and
+                                # resource bounds; only restore its origin flag.
+                                from dataclasses import replace
+                                authority = replace(authority, inherited=False)
                             if authority is not None:
                                 authority = authority.restrict(tool_policy, disabled_tools)
                             approval_for_command = needs_exact_command_approval(

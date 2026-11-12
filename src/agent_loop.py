@@ -21370,6 +21370,7 @@ async def stream_agent_loop(
             history_session=history_session,
             external_untrusted_context_seen=external_untrusted_context_seen,
             delegated_credential=delegated_credential,
+            approval_request_authority=active_request_authority(),
             workspace=workspace,
             client_runtime_context=client_runtime_context,
             external_tool_schemas=external_tool_schemas,
