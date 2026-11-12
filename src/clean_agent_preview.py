@@ -4637,6 +4637,21 @@ def denied_response():
     return 'I can’t perform that operation in this preview. No changes were made.'
 
 
+def needs_exact_command_approval(authority, operation, *, owner, session_id, workspace,
+                                 delegated_credential=False):
+    """Ask about an ungranted command without overriding an explicit denial."""
+    from src.agent_runtime.authority import RequestAuthority
+    return bool(
+        operation.tool in {'bash', 'python'}
+        and not delegated_credential
+        and isinstance(authority, RequestAuthority)
+        and not authority.inherited
+        and authority.bound_to(owner=owner, session_id=session_id, workspace=workspace)
+        and not authority.restricted(operation)
+        and not authority.permits(operation)
+    )
+
+
 WORKSPACE_REQUIRED_REFUSAL = (
     'Shell and Python commands only run inside a workspace. '
     'Open the code workspace (or set a working directory) and try again.'
@@ -7985,13 +8000,21 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                         # context has armed the gate. Never execute or broaden
                         # authority here; resume goes through the normal sealed
                         # approval continuation in stream_agent_loop.
-                        if interactive_pdf and canonical(block.tool_type) == 'write_file':
+                        if (interactive_pdf and canonical(block.tool_type) == 'write_file') or canonical(block.tool_type) in {'bash', 'python'}:
                             from src.agent_runtime.authority import active_request_authority, ExactOperation
                             decision = security.decision_for(block.tool_type, block.content)
                             authority = active_request_authority()
                             operation = ExactOperation.normalize(block.tool_type, block.content)
-                            if (not decision.allowed and not delegated_credential and authority is not None
-                                    and authority.permits(operation) and turn_contract.permits(block.tool_type)):
+                            if authority is not None:
+                                authority = authority.restrict(tool_policy, disabled_tools)
+                            approval_for_command = needs_exact_command_approval(
+                                authority, operation, owner=owner, session_id=session_id,
+                                workspace=workspace, delegated_credential=delegated_credential,
+                            )
+                            if ((approval_for_command or (interactive_pdf and not decision.allowed
+                                    and not delegated_credential and authority is not None
+                                    and authority.permits(operation)))
+                                    and turn_contract.permits(block.tool_type)):
                                 from src.tool_approvals import tool_approval_store
                                 pending = tool_approval_store.create(
                                     owner=owner, session_id=session_id, origin_run_id=security.run_id,
@@ -8002,7 +8025,10 @@ async def stream_preview(*, endpoint_url, model, messages, headers, turn_contrac
                                     request_text=direct_user_text, request_authority=authority,
                                     client_runtime_context=client_runtime_context,
                                 )
-                                ask = pending.public_payload(reason=decision.reason)
+                                ask = pending.public_payload(reason=(
+                                    'This exact command needs your approval.'
+                                    if approval_for_command else decision.reason
+                                ))
                                 approval_event = {
                                     'tool': block.tool_type, 'command': arguments,
                                     'output': 'Waiting for approval.', 'exit_code': None,
